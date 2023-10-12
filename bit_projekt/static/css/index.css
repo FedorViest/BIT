@@ -1,0 +1,71 @@
+
+
+body{
+    background-color: #212325;
+    color: lightgray;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+}
+
+.wrapper{
+    padding-right: 15%;
+    padding-left: 15%;
+    min-height: 500px;
+}
+
+.main-content{
+    font-weight: bold;
+    font-size: 20px;
+}
+
+h1{
+    font-weight: bold;
+}
+
+.form-control{
+    font-weight: normal;
+    color: black;
+    background: #979797;
+}
+
+.upload:hover{
+    background: lightgray;
+    color: black;
+}
+
+input[type="file"]::-webkit-file-upload-button {
+  background-color: #979797; /* Change the background color to blue */
+  color: black; /* Change the text color to white */
+  border-right: solid 1px; /* Remove the border */
+  cursor: pointer; /* Change the cursor on hover */
+}
+
+/* Style the text inside the button */
+input[type="file"]::-webkit-file-upload-button::before {
+  content: 'Choose File'; /* Change the text inside the button */
+}
+
+.output{
+    border-radius: 15%;
+}
+
+.output-text{
+    font-size: 20px;
+}
+
+.vulnerabilities{
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    overflow-x: auto;
+}
+
+.vulnerabilities{
+    margin: 50px;
+}
+
+.vuln-div{
+    padding: 50px;
+    margin-bottom: 150px;
+}
