@@ -13,6 +13,10 @@
 - Nájdite a zneužite zraniteľnosť na zobrazenie “hello world” správy cez javascript.
 - Svoje finálne URL a zistenia zdokumentujte
 
+Keď pošlem request na web server, auditor sa pozrie na URL a obsah POST, potom prehľadáva nebezpečné stringy, ktoré by mohli viesť k vykonaniu JS kódu, tieto requesty však ešte neblokuje ale počká si na response od servru a skontroluje, či sa inputy objavia na stránke bezt nejakého očistenia. Vtedy XSS auditor buď zablokuje load stránky, alebo vymaže script, ktorý bol nahraný.
+
+V prehliadači Chrome auditor nemám, lebo bol deprecated, keby prehliadač auditor obsahoval, bol by v Security tab v inspectore.
+
 
 Do input field som zadal
 
