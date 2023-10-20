@@ -25,7 +25,7 @@ Na cracknutie som použil túto stránku: https://sha1.gromweb.com/?string= a he
 ![](image.png)
 
 
-**$1$e89cca48$.lNUNFuE848.qRakPnepu/** - MD5 (Unix)
+**$1$e89cca48$.lNUNFuE848.qRakPnepu/** - MD5 (Unix), kde salt je e89cca48
 
 Na cracknutie hesla som použil nástroj john the ripper a heslo je **12345678**
 
@@ -43,6 +43,9 @@ Na cracknutie som použil nástroj john the ripper a heslo je **password1**
 Na cracknutie som použil nástroj john the ripper a heslo je **nbusr123**
 
 ![](image-3.png)
+
+
+Ani jedno heslo nie je bezpečné, keďže som vedel cracknúť všetky. Všetky heslá sú zo slovníka a sú to vpodstate basic heslá. Lepšie by bolo použiť nejaké heslo s random znakmi a v náhodnom poradí. Čo sa týka algoritmov, SHA-1 sa už na heslá nepoužíva, z dôvodu, že pre rovnaký string vytvorí rovnaký hash, čiže útočníci sa vedia zamerať na hashe, ktorých je najviac (napr. v DB)
 
 ## 4.2 Broken authentication
 - Na stránke “backend.php” nájdete prihlasovací formulár.
@@ -145,7 +148,7 @@ Je pokus o escapovanie vstupu, ale stale sa da prelomit, cize strale to nie je v
 Escape characterov, napríklad použitím regexu a obmedzením dĺžky vstupu 
 
 
-3. Zraniteľnosť Race Condition - **CWE identifikátor: CWE-362**
+3. Zraniteľnosť Race Condition - **CWE identifikátor: CWE-367**
 
 ```php
 $message_id = $db->getValue("SELECT MAX(id) FROM messages");
@@ -183,7 +186,7 @@ V message sa môže nachádzať nebezpečný JS kód, ktroý sa spustí pri tomt
 
 Sanitizovať kód napríklad použitím funkcie htmlspecialchars()
 
-5. Ukladanie citlivých údajov do cookie **CWE identifikátor: CWE-311**
+5. Ukladanie citlivých údajov do cookie **CWE identifikátor: CWE-311, CWE-315**
 
 ```php
 $user = $db->getRow("SELECT * FROM users WHERE login='".addslashes($login)."' AND password='".addslashes($password)"'");
@@ -196,61 +199,27 @@ Z DB sa vytiahnu citlivé údaje o používateľovi, ktoré sa následne vložia
 
 Nevkladať citlivé údaje do cookie a neukladať ich na používateľov stroj. Radšej vytvoriť používateľovi session pri logine, alebo používať tokeny.
 
+6. Ukadanie dát do premenných z cookie, ktorá mohla byť modifikovaná **CWE identifikátor: CWE-565**
+
 ```php
-<?php
-
-// initialize database connection ($db)
-include("mysql.inc");
-
-// authentication
-if (!empty($_REQUEST['login'])) {
-	$login = $_REQUEST['login'];
-	$password = substr($_REQUEST['password'], 0, 8);
-	$user = $db->getRow("SELECT * FROM users WHERE login='".addslashes($login)."' AND password='".addslashes($password)"'");
-	setcookie('user',base64_encode($user));
-	// greet user after login
-	echo "<h1>Welcome back {$_REQUEST['login']}</h1>";
-} else {
-	// resume session
-	$user = @base64_decode($_COOKIE['user']);
-}
-
-// new messages and file uploads
-if (!empty($_POST['message'])) {
-	// message & user info
-	$title = $_POST['title'];
-	$message = $_POST['message'];
-	$author = $user['name'];
-	$message_id = $db->getValue("SELECT MAX(id) FROM messages");
-
-	// check, if user has external avatar
-	$url = "https://www.gravatar.com/avatar/".md5(trim($user['login']));
-	$avatar_data = file_get_contents($url);
-	file_put_contents("avatars/".$user['login'].".jpg");
-
-	// save message
-	$db->query("INSERT INTO messages VALUES(".($message_id + 1).",'$title', '$message', '$author')");
-
-	// update post count
-	$db->query("UPDATE users SET post_count=post_count+1,last_message='$title' WHERE user='$author'");
-}
-
-// allow administrator to delete messages
-if (!empty($_GET['delete_message']) && $user['admin']) {
-	$db->query("DELETE FROM messages WHERE id=".intval($_GET['delete_message']));
-}
-	
-// show all messages
-$messages = $db->getAll("SELECT * FROM messages ORDER BY created_at ASC");
-
-foreach ($messages as $message) {
-	echo <<<EOT
-<h1>{$message['title']}</h1>
-<h2>{$message['author']}</h2>
-<div>{$message['message']}</div>
-EOT;
-	if ($user['admin']) {
-		echo "<a href='?delete_message={$message['id']}'>delete message</a>";
-	}
-}
+$user = @base64_decode($_COOKIE['user']);
 ```
+
+Vytvára sa user z cookie, ale medzičasom táto cookie mohla byť modifikovaná
+
+**Odporúčanie**
+
+Použiť tokeny namiesto cookie
+
+7. Data leak z databázy **CWE identifikátor: CWE-209**
+
+```php
+$user = $db->getRow("SELECT * FROM users WHERE login='".addslashes($login)."' AND password='".addslashes($password)"'");
+	setcookie('user',base64_encode($user));
+```
+
+V prípade, že v query vznikne error, error message s údajmi o DB sa uloží do cookie
+
+**Odporúčanie**
+
+Pridať handler, že v prípade, že DB vráti error, tak sa cookie nevytvorí
