@@ -122,3 +122,64 @@ Keď som nahradil cookie údaje, tak sa mi zobrazil "flag": **krtko**
 - Zamerajte sa na typy zranitelností, ktoré ste neobjavili v úlohe 3.4
 - Okomentujte ich a vyskúšajte ich pomenovať pomocou CWE identifikátorov.
 - Bonus: Navrhnite odporúčania, ako problému odstrániť, prípadne opravte kód
+
+
+```php
+
+<?php
+
+// initialize database connection ($db)
+include("mysql.inc");
+
+// authentication
+if (!empty($_REQUEST['login'])) {
+	$login = $_REQUEST['login'];
+	$password = substr($_REQUEST['password'], 0, 8);
+	$user = $db->getRow("SELECT * FROM users WHERE login='".addslashes($login)."' AND password='".addslashes($password)"'");
+	setcookie('user',base64_encode($user));
+	// greet user after login
+	echo "<h1>Welcome back {$_REQUEST['login']}</h1>";
+} else {
+	// resume session
+	$user = @base64_decode($_COOKIE['user']);
+}
+
+// new messages and file uploads
+if (!empty($_POST['message'])) {
+	// message & user info
+	$title = $_POST['title'];
+	$message = $_POST['message'];
+	$author = $user['name'];
+	$message_id = $db->getValue("SELECT MAX(id) FROM messages");
+
+	// check, if user has external avatar
+	$url = "https://www.gravatar.com/avatar/".md5(trim($user['login']));
+	$avatar_data = file_get_contents($url);
+	file_put_contents("avatars/".$user['login'].".jpg");
+
+	// save message
+	$db->query("INSERT INTO messages VALUES(".($message_id + 1).",'$title', '$message', '$author')");
+
+	// update post count
+	$db->query("UPDATE users SET post_count=post_count+1,last_message='$title' WHERE user='$author'");
+}
+
+// allow administrator to delete messages
+if (!empty($_GET['delete_message']) && $user['admin']) {
+	$db->query("DELETE FROM messages WHERE id=".intval($_GET['delete_message']));
+}
+	
+// show all messages
+$messages = $db->getAll("SELECT * FROM messages ORDER BY created_at ASC");
+
+foreach ($messages as $message) {
+	echo <<<EOT
+<h1>{$message['title']}</h1>
+<h2>{$message['author']}</h2>
+<div>{$message['message']}</div>
+EOT;
+	if ($user['admin']) {
+		echo "<a href='?delete_message={$message['id']}'>delete message</a>";
+	}
+}
+```
