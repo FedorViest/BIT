@@ -13,22 +13,16 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 templates = Jinja2Templates(directory="templates")
 
-# Create a simple HTML form for file upload
-html_form = """
-<!DOCTYPE html>
-<html>
-<head>
-    <title>PDF Upload</title>
-</head>
-<body>
-    <h1>Upload a PDF File</h1>
-    <form action="/upload" method="post" enctype="multipart/form-data">
-        <input type="file" name="pdf_file">
-        <input type="submit" value="Upload">
-    </form>
-</body>
-</html>
-"""
+class PDFObject():
+    def __init__(self, obj_num, obj_gen, type, obj_stream, jump=None):
+        self.obj_num = obj_num
+        self.obj_gen = obj_gen
+        self.type = type
+        self.obj_stream = obj_stream
+        self.jump = jump
+
+    def __str__(self):
+        return f"{self.obj_num} {self.obj_gen} {self.type} {self.jump} obj\n{self.obj_stream}\nendobj"
 
 
 @app.get("/")
@@ -44,6 +38,94 @@ def decode_utf16(value):
     except Exception as e:
         return value
 
+
+def find_metadata(metadata):
+    # Initialize variables with default values
+    format = "Not available"
+    author = "Not available"
+    creator = "Not available"
+    producer = "Not available"
+    create_at = "Not available"
+    modify_at = "Not available"
+
+    filtered_metadata = {key: metadata[key] for key in ["format", "author", "creator", "producer", "creationDate", "modDate"]}
+
+    # if value in dict empty, set Not available to it
+    for key in filtered_metadata:
+        if filtered_metadata[key] == '':
+            filtered_metadata[key] = "Not available"
+
+    # Check and decode metadata values
+    if "format" in metadata:
+        format = decode_utf16(filtered_metadata["format"])
+
+    if "author" in metadata:
+        author = decode_utf16(filtered_metadata["author"])
+
+    if "producer" in metadata:
+        producer = decode_utf16(filtered_metadata["producer"])
+
+    if "creator" in metadata:
+        creator = decode_utf16(filtered_metadata["creator"])
+
+    if "creationDate" in metadata:
+        create_at = decode_utf16(filtered_metadata["creationDate"])
+        if create_at != "Not available":
+            date_str = create_at[2:15]  # Extracts "20231025202517"
+
+            # Convert to datetime object
+            date_obj = datetime.strptime(date_str, "%Y%m%d%H%M%S")
+
+            # Format the datetime object as dd.mm.yyyy
+            formatted_date = date_obj.strftime("%d.%m.%Y")
+            create_at = formatted_date
+
+    if "modDate" in metadata:
+        modify_at = decode_utf16(filtered_metadata["modDate"])
+        if modify_at != "Not available":
+            date_str = modify_at[2:15]  # Extracts "20231025202517"
+
+            # Convert to datetime object
+            date_obj = datetime.strptime(date_str, "%Y%m%d%H%M%S")
+
+            # Format the datetime object as dd.mm.yyyy
+            formatted_date = date_obj.strftime("%d.%m.%Y")
+            modify_at = formatted_date
+
+    # Create json from these values
+
+    return {
+        "Version": format,
+        "Author": author,
+        "Creator": creator,
+        "Producer": producer,
+        "Created at": create_at,
+        "Modified at": modify_at
+    }
+
+
+def get_score(codes):
+    words = ["require", "url", "SOAP", "geturl", "launchurl", "geturldata", "request", "connect", "curl", "submitform",
+             "location.replace", "websocket", "importdataobject", "importAnFDF", "importAnXFDF", "importXFAData"]
+
+    regex_patterns = ["https?://\S+"]
+
+    total_score = []
+
+    for code in codes:
+        pattern = re.compile(r'\b(?:' + '|'.join(re.escape(word) for word in words) + r')\b',
+                             flags=re.IGNORECASE)
+        pattern_regex = re.compile(r'\b(?:' + '|'.join(regex_patterns) + r')\b',
+                                   flags=re.IGNORECASE)
+        matches = pattern.findall(code) + pattern_regex.findall(code)
+        danger_score = len(matches)
+
+        total_score.append(danger_score)
+
+    return total_score
+
+
+
 @app.post("/upload/")
 async def upload_pdf(pdf_file: UploadFile, request: Request):
     if pdf_file.content_type == 'application/pdf':
@@ -57,48 +139,67 @@ async def upload_pdf(pdf_file: UploadFile, request: Request):
             page_texts.append(page_text)
 
         clean_stream = str(pdf_document.stream).replace('\\r', '').replace('\\n', '')
-        pattern = r"\/JS \((.*?\))"
-        js = re.findall(pattern, clean_stream, re.DOTALL)
+        json = find_metadata(pdf_document.metadata)
         pdf_document.close()
 
+        js_pattern = r"/JS.*?endobj"
+        js = re.findall(js_pattern, clean_stream, re.DOTALL)
+        final = []
+        final = js
 
-        #pdf_reader = PDFDocument(pdf_file.file)
+        type_pattern = r"/Type\s+([^<\s]+)"
 
-        # Initialize variables with default values
-        author = "Not available"
-        creator = "Not available"
-        producer = "Not available"
-        create_at = "Not available"
-        modify_at = "Not available"
+        js = []
 
-        """# Check and decode metadata values
-        if "Author" in pdf_reader.metadata:
-            author = decode_utf16(pdf_reader.metadata["Author"])
+        objects_regex = re.findall('\d+ \d+ obj.*?endobj', clean_stream, re.DOTALL)
+        if not objects_regex:
+            objects_regex = re.findall(r'\d+ \d+ obj.*?>>', clean_stream, re.DOTALL)
+        objects = []
 
-        if "Producer" in pdf_reader.metadata:
-            producer = decode_utf16(pdf_reader.metadata["Producer"])
+        for obj in objects_regex:
+            obj_num = int(obj.split(' ')[0])
+            obj_gen = int(obj.split(' ')[1])
+            type = re.search(type_pattern, obj, re.DOTALL)
+            if type:
+                type = type.group(1)
+            else:
+                type = None
+            try:
+                temp_stream = re.search("obj.*endobj", obj, re.DOTALL).string
+            except AttributeError:
+                temp_stream = re.search("obj.*?>>", obj, re.DOTALL).string if re.search("obj.*?>>", obj,
+                                                                                          re.DOTALL) else None
+            #join items in list into 1 element
+            """if len(obj.split('obj')) > 3:
+                temp_list = obj.split('obj')
+                temp_list.pop(0)
+                obj_stream = ''.join(temp_list).split('endobj')[0].strip()
+            else:
+                obj_stream = obj.split('obj')[1].split('endobj')[0].strip()"""
+            js.append(re.search(js_pattern, temp_stream, re.DOTALL))
 
-        if "Creator" in pdf_reader.metadata:
-            creator = decode_utf16(pdf_reader.metadata["Creator"])
+            js[-1] = js[-1].string if js[-1] else None
+            objects.append(PDFObject(obj_num, obj_gen, type, temp_stream, js[-1]))
 
-        if "CreationDate" in pdf_reader.metadata:
-            create_at = decode_utf16(pdf_reader.metadata["CreationDate"])
-            create_at = create_at.strftime("%d.%m.%Y %H:%M")
+        for obj in objects:
+            if obj.type == "/Action" and obj.jump is not None:
+                # handle if the pattern is not found, so group(0) will throw an error
 
-        if "ModDate" in pdf_reader.metadata:
-            modify_at = decode_utf16(pdf_reader.metadata["ModDate"])
-            modify_at = modify_at.strftime("%d.%m.%Y %H:%M")"""
+                numbers = re.search("(\d+) (\d+) ?R", obj.jump)
+                if numbers:
+                    numbers = numbers.group(0)
+                    # get 6 and 0 from ['/JS 6 0 R  >>endobj']
+                    obj_num = int(numbers.split(' ')[0])
+                    obj_gen = int(numbers.split(' ')[1])
+                    # get object with obj_num and obj_gen
+                    for o in objects:
+                        if o.obj_num == obj_num and o.obj_gen == obj_gen:
+                            # get javascript code from object
+                            final.append(o.obj_stream)
 
-        #create json from these values
-        json = {
-            "Author": author,
-            "Creator": creator,
-            "Producer": producer,
-            "Created at": create_at,
-            "Modified at": modify_at
-        }
 
-        javascript_code_list = [
+
+        """javascript_code_list = [
             "console.log('Hello, World!');",
             "function add(a, b) { return a + b; }",
             "var x = 10; var y = 20; var result = x + y;"
@@ -119,13 +220,16 @@ async def upload_pdf(pdf_file: UploadFile, request: Request):
             modified_code = '\n' + ';\n'.join(code_parts[:-1]) + ';' + code_parts[-1]
             modified_javascript_code_list.append(modified_code)
 
-        javascript_code_list = modified_javascript_code_list
+        javascript_code_list = modified_javascript_code_list"""
+        malicious_code_list = []
+        for j in final:
+            malicious_code_list.append(j)
 
-        for j in js:
-            javascript_code_list.append(j)
+        total_score = get_score(malicious_code_list)
+        malicious_code_list = list(zip(malicious_code_list, total_score))
 
         # You can now work with 'text_content' as needed
-        return templates.TemplateResponse("index.html", {"request": request, "message": "PDF file uploaded and parsed successfully.", "content": json, "javascript_code_list": javascript_code_list})
+        return templates.TemplateResponse("index.html", {"request": request, "message": "PDF file uploaded and parsed successfully.", "content": json, "malicious_code_list": malicious_code_list, "score": sum(total_score)})
     else:
         return await root(request, "No file uploaded or incorrect file type uploaded. Please upload supported file type.")
 

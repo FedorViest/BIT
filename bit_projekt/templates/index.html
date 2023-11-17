@@ -29,14 +29,36 @@
 
         {% if message %}
             {% if "success" in message %}
-            <div id="output" class="row output d-flex justify-content-center m-0 mb-5 p-0 border rounded w-100 h-100">
-            </div>
+            <div id="output" class="row output d-flex justify-content-center m-0 mb-5 p-0 border rounded w-100 h-100"></div>
             {% endif %}
-            {% if javascript_code_list %}
+
+        {% if score > 5 %}
+            <h4 class="mt-3 text-danger">Document danger score: {{ score }}</h4>
+        {% elif score <= 5 and score > 1 %}
+            <h4 class="mt-3 text-warning">Document danger score: {{ score }}</h4>
+        {% else %}
+            <h4 class="mt-3 text-info">Document danger score: {{ score }}</h4>
+        {% endif %}
+
+            {% if malicious_code_list %}
             <div class="vuln-div row d-flex mb-3 gap-3">
-                {% for javascript_code in javascript_code_list %}
-                    <div class="row output d-flex text-align-left justify-content-left m-0 p-0 border rounded">
-                        <pre class="vulnerabilities text-align-left d-flex p-0 ms-2 pt-3 col-12">{{ javascript_code }}</pre>
+                {% for malicious_code in malicious_code_list %}
+                    <div class="row output d-flex text-align-left justify-content-left m-0 p-3 border rounded
+                {% if malicious_code[1] > 5 %}
+                    border-danger
+                {% elif malicious_code[1] <= 5 and malicious_code[1] > 1 %}
+                    border-warning
+                {% else %}
+                    border-success
+                {% endif %}">
+                        {% if malicious_code[1] > 5 %}
+                            <h4 class="mt-3 text-danger">Danger score: {{ malicious_code[1] }}</h4>
+                        {% elif malicious_code[1] <= 5 and malicious_code[1] > 1 %}
+                            <h4 class="mt-3 text-warning">Danger score: {{ malicious_code[1] }}</h4>
+                        {% else %}
+                            <h4 class="mt-3 text-success">Danger score: {{ malicious_code[1] }}</h4>
+                        {% endif %}
+                        <pre class="vulnerabilities text-align-left d-flex p-0 ms-2 me-2 col-12">{{ malicious_code[0] }}</pre>
                     </div>
                 {% endfor %}
             </div>

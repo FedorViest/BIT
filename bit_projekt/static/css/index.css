@@ -69,3 +69,18 @@ input[type="file"]::-webkit-file-upload-button::before {
     padding: 50px;
     margin-bottom: 150px;
 }
+
+.border-danger {
+    border-width: 5px;
+    border-color: red;
+}
+
+.border-warning {
+    border-width: 5px;
+    border-color: orange;
+}
+
+.border-ok {
+    border-width: 5px;
+    border-color: green;
+}
