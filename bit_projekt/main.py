@@ -104,6 +104,14 @@ def find_metadata(metadata):
     }
 
 
+def count_not_available(json_data):
+    count = 0
+    for value in json_data.values():
+        if value == "Not available":
+            count += 1
+    return count
+
+
 def get_score(codes):
     words = ["require", "url", "SOAP", "geturl", "launchurl", "geturldata", "request", "connect", "curl", "submitform",
              "location.replace", "websocket", "importdataobject", "importAnFDF", "importAnXFDF", "importXFAData"]
@@ -140,6 +148,7 @@ async def upload_pdf(pdf_file: UploadFile, request: Request):
 
         clean_stream = str(pdf_document.stream).replace('\\r', '').replace('\\n', '')
         json = find_metadata(pdf_document.metadata)
+        metadata_score = count_not_available(json)
         pdf_document.close()
 
         js_pattern = r"/JS.*?endobj"
@@ -182,20 +191,42 @@ async def upload_pdf(pdf_file: UploadFile, request: Request):
             objects.append(PDFObject(obj_num, obj_gen, type, temp_stream, js[-1]))
 
         for obj in objects:
-            if obj.type == "/Action" and obj.jump is not None:
-                # handle if the pattern is not found, so group(0) will throw an error
+            obj_stream_lower = obj.obj_stream.lower()
+            if obj.type == "/Action":
+                if obj.jump is not None:
+                    # handle if the pattern is not found, so group(0) will throw an error
 
-                numbers = re.search("(\d+) (\d+) ?R", obj.jump)
-                if numbers:
-                    numbers = numbers.group(0)
-                    # get 6 and 0 from ['/JS 6 0 R  >>endobj']
-                    obj_num = int(numbers.split(' ')[0])
-                    obj_gen = int(numbers.split(' ')[1])
-                    # get object with obj_num and obj_gen
-                    for o in objects:
-                        if o.obj_num == obj_num and o.obj_gen == obj_gen:
-                            # get javascript code from object
-                            final.append(o.obj_stream)
+                    numbers = re.search("(\d+) (\d+) ?R", obj.jump)
+                    if numbers:
+                        numbers = numbers.group(0)
+                        # get 6 and 0 from ['/JS 6 0 R  >>endobj']
+                        obj_num = int(numbers.split(' ')[0])
+                        obj_gen = int(numbers.split(' ')[1])
+                        # get object with obj_num and obj_gen
+                        for o in objects:
+                            if o.obj_num == obj_num and o.obj_gen == obj_gen:
+                                # get javascript code from object
+                                final.append(o.obj_stream)
+
+                elif obj.jump is None:
+                    suspicious_actions = ["submitform", "importdata", "gotoe", "launch", "uri", "url"]
+                    if "/s" in obj_stream_lower:
+                        # check if any of the suspicious actions are in the object stream
+                        if any(action in obj_stream_lower for action in suspicious_actions):
+                            if "/uri" in obj_stream_lower or "/url" in obj_stream_lower:
+                                final.append(obj.obj_stream)
+                        """if "/submitform" in obj_stream_lower:
+                            if "/uri" in obj_stream_lower or "/url" in obj_stream_lower:
+                                final.append(obj.obj_stream)
+
+                        elif "/importdata" in obj_stream_lower:
+                            if "/uri" in obj_stream_lower or "/url" in obj_stream_lower:
+                                final.append(obj.obj_stream)
+
+                        elif "/gotoe" in obj_stream_lower:
+                            if "/uri" in obj_stream_lower or "/url" in obj_stream_lower:
+                                final.append(obj.obj_stream)"""
+
 
 
 
@@ -225,11 +256,14 @@ async def upload_pdf(pdf_file: UploadFile, request: Request):
         for j in final:
             malicious_code_list.append(j)
 
+        if len(malicious_code_list) == 0:
+            malicious_code_list.append("No suspicious code found in this PDF file.")
+
         total_score = get_score(malicious_code_list)
         malicious_code_list = list(zip(malicious_code_list, total_score))
 
         # You can now work with 'text_content' as needed
-        return templates.TemplateResponse("index.html", {"request": request, "message": "PDF file uploaded and parsed successfully.", "content": json, "malicious_code_list": malicious_code_list, "score": sum(total_score)})
+        return templates.TemplateResponse("index.html", {"request": request, "message": "PDF file uploaded and parsed successfully.", "content": json, "metadata_score": metadata_score, "malicious_code_list": malicious_code_list, "score": sum(total_score) + metadata_score})
     else:
         return await root(request, "No file uploaded or incorrect file type uploaded. Please upload supported file type.")
 
