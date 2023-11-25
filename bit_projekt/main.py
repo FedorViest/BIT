@@ -114,18 +114,23 @@ def count_not_available(json_data):
 
 def get_score(codes):
     words = ["require", "url", "SOAP", "geturl", "launchurl", "geturldata", "request", "connect", "curl", "submitform",
-             "location.replace", "websocket", "importdataobject", "importAnFDF", "importAnXFDF", "importXFAData"]
+             "location.replace", "websocket", "importdataobject", "importAnFDF", "importAnXFDF", "importXFAData", "setprops"]
+    file_extensions = [".exe", ".bat", ".cmd", ".pdf", ".fdf", ".txt", ".vbs", ".js", ".jar", ".msi", ".ps1", ".ps2", ".ps3", ".ps4", ".ps5", ".ps6", ".ps7"]
 
     regex_patterns = ["https?://\S+"]
 
     total_score = []
+
+    danger_score = 0
 
     for code in codes:
         pattern = re.compile(r'\b(?:' + '|'.join(re.escape(word) for word in words) + r')\b',
                              flags=re.IGNORECASE)
         pattern_regex = re.compile(r'\b(?:' + '|'.join(regex_patterns) + r')\b',
                                    flags=re.IGNORECASE)
-        matches = pattern.findall(code) + pattern_regex.findall(code)
+        pattern_extension = re.compile(r'\b(?:' + '|'.join(re.escape(word) for word in file_extensions) + r')\b',
+                                       flags=re.IGNORECASE)
+        matches = pattern.findall(code) + pattern_regex.findall(code) + pattern_extension.findall(code)
         danger_score = len(matches)
 
         total_score.append(danger_score)
@@ -154,6 +159,7 @@ async def upload_pdf(pdf_file: UploadFile, request: Request):
         js_pattern = r"/JS.*?endobj"
         js = re.findall(js_pattern, clean_stream, re.DOTALL)
         final = []
+        total_score = []
         final = js
 
         type_pattern = r"/Type\s+([^<\s]+)"
@@ -215,6 +221,8 @@ async def upload_pdf(pdf_file: UploadFile, request: Request):
                         if any(action in obj_stream_lower for action in suspicious_actions):
                             if "/uri" in obj_stream_lower or "/url" in obj_stream_lower:
                                 final.append(obj.obj_stream)
+                            elif "/filespec /f" in obj_stream_lower:
+                                final.append(obj.obj_stream)
                         """if "/submitform" in obj_stream_lower:
                             if "/uri" in obj_stream_lower or "/url" in obj_stream_lower:
                                 final.append(obj.obj_stream)
@@ -226,7 +234,16 @@ async def upload_pdf(pdf_file: UploadFile, request: Request):
                         elif "/gotoe" in obj_stream_lower:
                             if "/uri" in obj_stream_lower or "/url" in obj_stream_lower:
                                 final.append(obj.obj_stream)"""
-
+        # detect objects in trailer
+        trailers = clean_stream.split("trailer")
+        trailer_codes = []
+        if len(trailers) > 2:
+            trailers = trailers[1:]
+            for trailer in trailers:
+                trailer_obj = re.search("obj.*endobj", trailer, re.DOTALL)
+                if trailer_obj:
+                    trailer_codes.append(trailer_obj.group(0))
+                    total_score.append(10)
 
 
 
@@ -255,11 +272,13 @@ async def upload_pdf(pdf_file: UploadFile, request: Request):
         malicious_code_list = []
         for j in final:
             malicious_code_list.append(j)
-
+        total_score += get_score(malicious_code_list)
+        print(malicious_code_list)
+        malicious_code_list += trailer_codes
+        print(malicious_code_list)
         if len(malicious_code_list) == 0:
             malicious_code_list.append("No suspicious code found in this PDF file.")
-
-        total_score = get_score(malicious_code_list)
+            total_score.append(0)
         malicious_code_list = list(zip(malicious_code_list, total_score))
 
         # You can now work with 'text_content' as needed
