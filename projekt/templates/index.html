@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.1.0/css/all.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', path='css/index.css') }}" type="text/css">
+</head>
+<body>
+<div class="wrapper mb-5">
+        <div class="row main-content d-flex justify-content-center">
+            <h1 class="d-flex justify-content-center col-12 mb-3 mt-5">File analyser</h1>
+            <p class="d-flex justify-content-center col-9 mt-3">This is the project for subject BIT at FIIT STU in Bratislava. Aim of this website is to analyse
+            potentially malicious documents and give user information about the analysed file. To use this webpage, simply import a file and wait for the output.</p>
+        </div>
+        <div class="d-flex justify-content-center m-5">
+            <form action="/upload" method="post" enctype="multipart/form-data">
+                <input class="form-control form-control-lg col-12" type="file" name="pdf_file">
+                <input class="form-control form-control-lg mt-3 upload" type="submit" value="Upload">
+            </form>
+        </div>
+
+        {% if message %}
+        <div id="alert" class="alert mb-5 justify-content-center d-flex alert-{{ "success" if "successfully" in message else "danger" }}">
+            <p class="m-0 p-0 fw-bold"> {{ message }}</p>
+        </div>
+        {% endif %}
+
+        {% if message %}
+            {% if "success" in message %}
+                {% if score > 5 %}
+                    <h4 class="mt-3 text-danger">Total document danger score: {{ score }}</h4>
+                {% elif score <= 5 and score > 1 %}
+                    <h4 class="mt-3 text-warning">Total document danger score: {{ score }}</h4>
+                {% else %}
+                    <h4 class="mt-3 text-success">Total document danger score: {{ score }}</h4>
+                {% endif %}
+
+            <div id="output" class="row mt-5 output d-flex justify-content-center m-0 mb-5 p-0 border rounded w-100 h-100"></div>
+            {% endif %}
+
+            {% if malicious_code_list %}
+            <div class="vuln-div row d-flex mb-3 gap-3">
+                {% for malicious_code in malicious_code_list %}
+                    <div class="row output d-flex text-align-left justify-content-left m-0 p-3 border rounded
+                {% if malicious_code[1] > 1 %}
+                    border-danger
+                {% elif malicious_code[1] < 2 and malicious_code[1] > 0 %}
+                    border-warning
+                {% else %}
+                    border-success
+                {% endif %}">
+                        {% if malicious_code[1] > 1 %}
+                            <h4 class="mt-3 text-danger">Danger score: {{ malicious_code[1] }}</h4>
+                        {% elif malicious_code[1] < 2 and malicious_code[1] > 0 %}
+                            <h4 class="mt-3 text-warning">Danger score: {{ malicious_code[1] }}</h4>
+                        {% else %}
+                            <h4 class="mt-3 text-success">Danger score: {{ malicious_code[1] }}</h4>
+                        {% endif %}
+                        <pre class="vulnerabilities text-align-left d-flex p-0 ms-2 me-2 col-12">{{ malicious_code[0] }}</pre>
+                    </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+        {% endif %}
+</div>
+<script>
+    // Function to create and append <p> elements for each property
+
+    const json = {{ content | safe }};
+
+    // Get metadata score from backend
+    const score = {{ metadata_score | safe }};
+    function createParagraphs() {
+        const outputContainer = document.getElementById('output');
+
+        const danger_metadata = document.createElement('h4');
+
+        if (score <= 1){
+            danger_metadata.classList.add("text-success", "mt-3");
+            danger_metadata.textContent = "Danger score: " + score;
+            outputContainer.classList.add("border-success");
+        }
+        else if (score > 1 && score <= 3){
+            danger_metadata.classList.add("text-warning", "mt-3");
+            danger_metadata.textContent = "Danger score: " + score;
+            outputContainer.classList.add("border-warning")
+        }
+        else {
+            danger_metadata.classList.add("text-danger", "mt-3");
+            danger_metadata.textContent = "Danger score: " + score;
+            outputContainer.classList.add("border-danger");
+        }
+        outputContainer.appendChild(danger_metadata);
+        console.log(outputContainer)
+
+        // Iterate through the properties of the JSON object
+        for (const key in json) {
+            if (json.hasOwnProperty(key)) {
+                const p = document.createElement('p');
+                if (json[key] === "Not available"){
+                    p.style.color = "orange";
+                }
+                p.className = 'output-text col-12';
+                p.textContent += `${key}: ${json[key]}`;
+                outputContainer.appendChild(p);
+            }
+        }
+    }
+
+    // Call the function to create and append <p> elements
+    createParagraphs();
+
+</script>
+
+</body>
+</html>
