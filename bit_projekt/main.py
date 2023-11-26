@@ -157,8 +157,9 @@ def detect_trailer_operation(clean_stream, total_score):
     return trailer_codes, total_score
 
 
-def parse_objects(objects_regex, type_pattern, js, js_pattern):
+def parse_objects(objects_regex, type_pattern, js_pattern):
     objects = []
+    js = []
     for obj in objects_regex:
         obj_num = int(obj.split(' ')[0])
         obj_gen = int(obj.split(' ')[1])
@@ -180,72 +181,84 @@ def parse_objects(objects_regex, type_pattern, js, js_pattern):
     return objects, js
 
 
+def detect_codes(objects, final):
+    for obj in objects:
+        obj_stream_lower = obj.obj_stream.lower()
+        if obj.type == "/Action":
+            if obj.jump is not None:
+                numbers = re.search("(\d+) (\d+) ?R", obj.jump)
+                if numbers:
+                    numbers = numbers.group(0)
+                    # get 6 and 0 from ['/JS 6 0 R  >>endobj']
+                    obj_num = int(numbers.split(' ')[0])
+                    obj_gen = int(numbers.split(' ')[1])
+                    # get object with obj_num and obj_gen
+                    for o in objects:
+                        if o.obj_num == obj_num and o.obj_gen == obj_gen:
+                            # get javascript code from object
+                            final.append(o.obj_stream)
+
+            elif obj.jump is None:
+                suspicious_actions = ["submitform", "importdata", "gotoe", "launch", "uri", "url"]
+                if "/s" in obj_stream_lower:
+                    # check if any of the suspicious actions are in the object stream
+                    if any(action in obj_stream_lower for action in suspicious_actions):
+                        if "/uri" in obj_stream_lower or "/url" in obj_stream_lower:
+                            final.append(obj.obj_stream)
+                        elif "/filespec /f" in obj_stream_lower:
+                            final.append(obj.obj_stream)
+        else:
+            suspicious_actions = ["<template>", "<submit"]
+            if any(action in obj_stream_lower for action in suspicious_actions):
+                final.append(obj.obj_stream)
+
+    return final
+
+
+def open_pdf(pdf_file):
+    pdf_document = fitz.open(stream=pdf_file.file.read(), filetype="pdf")
+    page_texts = []
+
+    for page_num in range(len(pdf_document)):
+        page = pdf_document.load_page(page_num)
+        page_text = page.get_text("text")
+        page_texts.append(page_text)
+
+    clean_stream = str(pdf_document.stream).replace('\\r', '').replace('\\n', '')
+    json = {}
+    json["File name"] = pdf_file.filename
+    # add metadata to json
+    json.update(find_metadata(pdf_document.metadata))
+    metadata_score = count_not_available(json)
+    pdf_document.close()
+
+    return clean_stream, json, metadata_score
+
 
 @app.post("/upload/")
 async def upload_pdf(pdf_file: UploadFile, request: Request):
     if pdf_file.content_type == 'application/pdf':
 
-        pdf_document = fitz.open(stream=pdf_file.file.read(), filetype="pdf")
-        page_texts = []
-
-        for page_num in range(len(pdf_document)):
-            page = pdf_document.load_page(page_num)
-            page_text = page.get_text("text")
-            page_texts.append(page_text)
-
-        clean_stream = str(pdf_document.stream).replace('\\r', '').replace('\\n', '')
-        json = find_metadata(pdf_document.metadata)
-        metadata_score = count_not_available(json)
-        pdf_document.close()
+        clean_stream, json, metadata_score = open_pdf(pdf_file)
 
         js_pattern = r"/JS.*?endobj"
+        type_pattern = r"/Type\s+([^<\s]+)"
         js = re.findall(js_pattern, clean_stream, re.DOTALL)
         final = []
         total_score = []
         final = js
 
-        type_pattern = r"/Type\s+([^<\s]+)"
-
-        js = []
-
         objects_regex = re.findall('\d+ \d+ obj.*?endobj', clean_stream, re.DOTALL)
         if not objects_regex:
             objects_regex = re.findall(r'\d+ \d+ obj.*?>>', clean_stream, re.DOTALL)
-        objects, js = parse_objects(objects_regex, type_pattern, js, js_pattern)
 
-        for obj in objects:
-            obj_stream_lower = obj.obj_stream.lower()
-            if obj.type == "/Action":
-                if obj.jump is not None:
-                    # handle if the pattern is not found, so group(0) will throw an error
+        # get objects from pdf stream
+        objects, js = parse_objects(objects_regex, type_pattern, js_pattern)
 
-                    numbers = re.search("(\d+) (\d+) ?R", obj.jump)
-                    if numbers:
-                        numbers = numbers.group(0)
-                        # get 6 and 0 from ['/JS 6 0 R  >>endobj']
-                        obj_num = int(numbers.split(' ')[0])
-                        obj_gen = int(numbers.split(' ')[1])
-                        # get object with obj_num and obj_gen
-                        for o in objects:
-                            if o.obj_num == obj_num and o.obj_gen == obj_gen:
-                                # get javascript code from object
-                                final.append(o.obj_stream)
+        # get malicious content from objects
+        final = detect_codes(objects, final)
 
-                elif obj.jump is None:
-                    suspicious_actions = ["submitform", "importdata", "gotoe", "launch", "uri", "url"]
-                    if "/s" in obj_stream_lower:
-                        # check if any of the suspicious actions are in the object stream
-                        if any(action in obj_stream_lower for action in suspicious_actions):
-                            if "/uri" in obj_stream_lower or "/url" in obj_stream_lower:
-                                final.append(obj.obj_stream)
-                            elif "/filespec /f" in obj_stream_lower:
-                                final.append(obj.obj_stream)
-            else:
-                suspicious_actions = ["xdp", "xml", "<template>", "<submit"]
-                if any(action in obj_stream_lower for action in suspicious_actions):
-                    final.append(obj.obj_stream)
-
-        # make a function from this trailer operation
+        # get malicious content from trailers
         trailer_codes, total_score = detect_trailer_operation(clean_stream, total_score)
 
         malicious_code_list = []
@@ -261,6 +274,5 @@ async def upload_pdf(pdf_file: UploadFile, request: Request):
         # You can now work with 'text_content' as needed
         return templates.TemplateResponse("index.html", {"request": request, "message": "PDF file uploaded and parsed successfully.", "content": json, "metadata_score": metadata_score, "malicious_code_list": malicious_code_list, "score": sum(total_score) + metadata_score})
     else:
-        return await root(request, "No file uploaded or incorrect file type uploaded. Please upload supported file type.")
-
-        #return templates.TemplateResponse("index.html", {"request": request, "message": "No file uploaded, please upload a file first."})
+        return await root(request, "No file uploaded or incorrect file type uploaded. Please upload supported file "
+                                   "type.")
