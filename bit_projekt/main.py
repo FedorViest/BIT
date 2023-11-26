@@ -130,12 +130,54 @@ def get_score(codes):
                                    flags=re.IGNORECASE)
         pattern_extension = re.compile(r'\b(?:' + '|'.join(re.escape(word) for word in file_extensions) + r')\b',
                                        flags=re.IGNORECASE)
-        matches = pattern.findall(code) + pattern_regex.findall(code) + pattern_extension.findall(code)
+        matches = set(pattern.findall(code) + pattern_regex.findall(code) + pattern_extension.findall(code))
         danger_score = len(matches)
 
         total_score.append(danger_score)
 
     return total_score
+
+# make a function from trailer operation on line 232
+def detect_trailer_operation(clean_stream, total_score):
+    trailers = clean_stream.split("trailer")
+    trailer_codes = []
+    suspicious_actions = ["submitform", "importdata", "gotoe", "launch", "uri", "url"]
+    for trailer in trailers[1:]:
+        if any(action in trailer.lower() for action in suspicious_actions):
+            trailer_codes.append("WARNING: UNEXPECTED CODE IN TRAILER \n\n" + trailer)
+            total_score.append(10)
+    if len(trailers) > 2:
+        trailers = trailers[1:]
+        for trailer in trailers:
+            trailer_obj = re.search("obj.*endobj", trailer, re.DOTALL)
+            if trailer_obj:
+                trailer_codes.append("WARNING: OBJECT IN TRAILER \n\n" + trailer_obj.group(0))
+                total_score.append(10)
+
+    return trailer_codes, total_score
+
+
+def parse_objects(objects_regex, type_pattern, js, js_pattern):
+    objects = []
+    for obj in objects_regex:
+        obj_num = int(obj.split(' ')[0])
+        obj_gen = int(obj.split(' ')[1])
+        type = re.search(type_pattern, obj, re.DOTALL)
+        if type:
+            type = type.group(1)
+        else:
+            type = None
+        try:
+            temp_stream = re.search("obj.*endobj", obj, re.DOTALL).string
+        except AttributeError:
+            temp_stream = re.search("obj.*?>>", obj, re.DOTALL).string if re.search("obj.*?>>", obj,
+                                                                                    re.DOTALL) else None
+        js.append(re.search(js_pattern, temp_stream, re.DOTALL))
+
+        js[-1] = js[-1].string if js[-1] else None
+        objects.append(PDFObject(obj_num, obj_gen, type, temp_stream, js[-1]))
+
+    return objects, js
 
 
 
@@ -169,32 +211,7 @@ async def upload_pdf(pdf_file: UploadFile, request: Request):
         objects_regex = re.findall('\d+ \d+ obj.*?endobj', clean_stream, re.DOTALL)
         if not objects_regex:
             objects_regex = re.findall(r'\d+ \d+ obj.*?>>', clean_stream, re.DOTALL)
-        objects = []
-
-        for obj in objects_regex:
-            obj_num = int(obj.split(' ')[0])
-            obj_gen = int(obj.split(' ')[1])
-            type = re.search(type_pattern, obj, re.DOTALL)
-            if type:
-                type = type.group(1)
-            else:
-                type = None
-            try:
-                temp_stream = re.search("obj.*endobj", obj, re.DOTALL).string
-            except AttributeError:
-                temp_stream = re.search("obj.*?>>", obj, re.DOTALL).string if re.search("obj.*?>>", obj,
-                                                                                          re.DOTALL) else None
-            #join items in list into 1 element
-            """if len(obj.split('obj')) > 3:
-                temp_list = obj.split('obj')
-                temp_list.pop(0)
-                obj_stream = ''.join(temp_list).split('endobj')[0].strip()
-            else:
-                obj_stream = obj.split('obj')[1].split('endobj')[0].strip()"""
-            js.append(re.search(js_pattern, temp_stream, re.DOTALL))
-
-            js[-1] = js[-1].string if js[-1] else None
-            objects.append(PDFObject(obj_num, obj_gen, type, temp_stream, js[-1]))
+        objects, js = parse_objects(objects_regex, type_pattern, js, js_pattern)
 
         for obj in objects:
             obj_stream_lower = obj.obj_stream.lower()
@@ -223,59 +240,19 @@ async def upload_pdf(pdf_file: UploadFile, request: Request):
                                 final.append(obj.obj_stream)
                             elif "/filespec /f" in obj_stream_lower:
                                 final.append(obj.obj_stream)
-                        """if "/submitform" in obj_stream_lower:
-                            if "/uri" in obj_stream_lower or "/url" in obj_stream_lower:
-                                final.append(obj.obj_stream)
+            else:
+                suspicious_actions = ["xdp", "xml", "<template>", "<submit"]
+                if any(action in obj_stream_lower for action in suspicious_actions):
+                    final.append(obj.obj_stream)
 
-                        elif "/importdata" in obj_stream_lower:
-                            if "/uri" in obj_stream_lower or "/url" in obj_stream_lower:
-                                final.append(obj.obj_stream)
+        # make a function from this trailer operation
+        trailer_codes, total_score = detect_trailer_operation(clean_stream, total_score)
 
-                        elif "/gotoe" in obj_stream_lower:
-                            if "/uri" in obj_stream_lower or "/url" in obj_stream_lower:
-                                final.append(obj.obj_stream)"""
-        # detect objects in trailer
-        trailers = clean_stream.split("trailer")
-        trailer_codes = []
-        if len(trailers) > 2:
-            trailers = trailers[1:]
-            for trailer in trailers:
-                trailer_obj = re.search("obj.*endobj", trailer, re.DOTALL)
-                if trailer_obj:
-                    trailer_codes.append(trailer_obj.group(0))
-                    total_score.append(10)
-
-
-
-        """javascript_code_list = [
-            "console.log('Hello, World!');",
-            "function add(a, b) { return a + b; }",
-            "var x = 10; var y = 20; var result = x + y;"
-            "var x = 10; var y = 20; var result = x + y;"
-            "var x = 10; var y = 20; var result = x + y;",
-            "var x = 10; var y = 20; var result = x + y;"
-            "var x = 10; var y = 20; var result = x + y;"
-            "var x = 10; var y = 20; var result = x + y;",
-            "var x = 10; var y = 20; var result = x + y;"
-            "var x = 10; var y = 20; var result = x + y;"
-            "var x = 10; var y = 20; var result = x + y;"
-        ]
-
-        modified_javascript_code_list = []
-        for code in javascript_code_list:
-            code = code.strip()
-            code_parts = code.split(';')
-            modified_code = '\n' + ';\n'.join(code_parts[:-1]) + ';' + code_parts[-1]
-            modified_javascript_code_list.append(modified_code)
-
-        javascript_code_list = modified_javascript_code_list"""
         malicious_code_list = []
         for j in final:
             malicious_code_list.append(j)
         total_score += get_score(malicious_code_list)
-        print(malicious_code_list)
         malicious_code_list += trailer_codes
-        print(malicious_code_list)
         if len(malicious_code_list) == 0:
             malicious_code_list.append("No suspicious code found in this PDF file.")
             total_score.append(0)
