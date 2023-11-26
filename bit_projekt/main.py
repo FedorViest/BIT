@@ -1,6 +1,5 @@
 from fastapi import FastAPI, UploadFile, Request
 from fastapi.templating import Jinja2Templates
-from pdfreader import *
 from datetime import datetime
 from fastapi.staticfiles import StaticFiles
 
