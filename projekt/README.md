@@ -20,6 +20,12 @@ Disclaimer: This tool can detect malicious content, however, it is crucial to un
 5. Install requirements with command `pip install -r requirements.txt`
 6. To run the program type in `uvicorn main:app --host 127.0.0.1 --port 8000` (you can change host and port to suit your preferences)
 
+### If downloading release:
+
+1. Download bit_project.zip from this link `https://github.com/FedorViest/BIT/releases/tag/v1.0.0`
+2. Unzip into selected folder
+3. Follow the same process from **step 2** in Installation and run guide
+
 
 ---
 
